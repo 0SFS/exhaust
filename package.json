@@ -1,0 +1,54 @@
+{
+  "name": "@0sfs/exhaust",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Engine exhaust for 0SFS: gas optics and rendering, smoke, hot surfaces and the Exhaust panel.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    "./createEngineExhaust": {
+      "source": "./src/createEngineExhaust.ts",
+      "default": "./src/createEngineExhaust.ts"
+    },
+    "./createEngineSmoke": {
+      "source": "./src/createEngineSmoke.ts",
+      "default": "./src/createEngineSmoke.ts"
+    },
+    "./engineExhaustProfiles": {
+      "source": "./src/engineExhaustProfiles.ts",
+      "default": "./src/engineExhaustProfiles.ts"
+    },
+    "./engineGasOptics": {
+      "source": "./src/engineGasOptics.ts",
+      "default": "./src/engineGasOptics.ts"
+    },
+    "./engineGasSupport": {
+      "source": "./src/engineGasSupport.ts",
+      "default": "./src/engineGasSupport.ts"
+    },
+    "./engineReactionEmission": {
+      "source": "./src/engineReactionEmission.ts",
+      "default": "./src/engineReactionEmission.ts"
+    },
+    "./engineSmokeProfiles": {
+      "source": "./src/engineSmokeProfiles.ts",
+      "default": "./src/engineSmokeProfiles.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@babylonjs/core": "8.56.2",
+    "foss-earth": "0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@babylonjs/core": {
+      "optional": true
+    },
+    "foss-earth": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "vitest": "4.1.6"
+  }
+}
