@@ -10,6 +10,10 @@
       "source": "./src/createEngineExhaust.ts",
       "default": "./src/createEngineExhaust.ts"
     },
+    "./engineExhaustDepth": {
+      "source": "./src/engineExhaustDepth.ts",
+      "default": "./src/engineExhaustDepth.ts"
+    },
     "./createEngineSmoke": {
       "source": "./src/createEngineSmoke.ts",
       "default": "./src/createEngineSmoke.ts"

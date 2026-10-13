@@ -1,6 +1,6 @@
 import { DepthRenderer, FreeCamera, MeshBuilder, MultiMaterial, NullEngine, Scene, StandardMaterial, SubMesh, Vector3 } from "@babylonjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createEngineExhaustDepth } from "../src/engineExhaustDepth";
+import { createEngineExhaustDepth, hiddenDepthOccludersReady, watchHiddenDepthOccluder } from "../src/engineExhaustDepth";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -150,6 +150,31 @@ describe("engine exhaust opaque-depth readiness", () => {
     vi.advanceTimersByTime(100);
     expect(isReady).toHaveBeenCalledTimes(2);
     expect(t.requestRender).toHaveBeenCalledOnce();
+    expect(t.engine.currentRenderPassId).toBe(t.mainPass);
+  });
+
+  it("compiles a hidden warmup mesh without drawing it into the occlusion list", () => {
+    const t = fixture();
+    const stowed = MeshBuilder.CreateBox("stowed-gear", {}, t.scene);
+    stowed.material = t.material;
+    stowed.isVisible = false;
+    watchHiddenDepthOccluder(stowed);
+    const checked = vi.spyOn(DepthRenderer.prototype, "isReady").mockImplementation(sub => sub.getMesh() !== stowed);
+
+    t.depth.setActive(true, 1);
+    expect(t.depth.ready).toBe(true);
+    expect(t.depth.texture.renderList).toContain(t.hardware);
+    expect(t.depth.texture.renderList).not.toContain(stowed);
+    expect(checked.mock.calls.map(([sub]) => sub.getMesh())).toContain(stowed);
+    expect(stowed.isVisible).toBe(false);
+    expect(hiddenDepthOccludersReady()).toBe(false);
+    expect(t.engine.currentRenderPassId).toBe(t.mainPass);
+
+    checked.mockReturnValue(true);
+    vi.advanceTimersByTime(50);
+    expect(hiddenDepthOccludersReady()).toBe(true);
+    expect(t.depth.texture.renderList).not.toContain(stowed);
+    expect(stowed.isVisible).toBe(false);
     expect(t.engine.currentRenderPassId).toBe(t.mainPass);
   });
 });
