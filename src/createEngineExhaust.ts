@@ -1,5 +1,5 @@
 import {
-  AbstractMesh, Constants, ImageProcessingConfiguration, Light, Matrix, Mesh, MultiMaterial, PBRMaterial, MeshBuilder, PointLight, Quaternion, RawTexture, ShaderLanguage, ShaderMaterial, Texture,
+  AbstractMesh, Constants, ImageProcessingConfiguration, Light, Matrix, Mesh, MultiMaterial, PBRMaterial, CreateBox, PointLight, Quaternion, RawTexture, ShaderLanguage, ShaderMaterial, Texture,
   TransformNode, Vector2, Vector3, Vector4, type Scene,
 } from "@babylonjs/core";
 import "@babylonjs/core/Shaders/ShadersInclude/helperFunctions";
@@ -518,7 +518,7 @@ export function createEngineExhaust(scene: Scene, options: EngineExhaustOptions)
   anchor.position = new Vector3(...options.exitPosition);
   anchor.rotationQuaternion = Quaternion.Identity();
   Quaternion.FromUnitVectorsToRef(Vector3.Forward(), direction, anchor.rotationQuaternion);
-  const mesh = MeshBuilder.CreateBox("engine-exhaust", { width: 2, height: 2, depth: 1, sideOrientation: Mesh.BACKSIDE }, scene);
+  const mesh = CreateBox("engine-exhaust", { width: 2, height: 2, depth: 1, sideOrientation: Mesh.BACKSIDE }, scene);
   mesh.parent = options.flowSupport?.root ?? anchor;
   mesh.isPickable = false;
   mesh.receiveShadows = false;

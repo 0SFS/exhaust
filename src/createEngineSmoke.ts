@@ -1,4 +1,4 @@
-import { Constants, Mesh, MeshBuilder, ShaderLanguage, ShaderMaterial, Texture, Vector3, Vector4, type Scene, type TransformNode } from "@babylonjs/core";
+import { Constants, Mesh, CreatePlane, ShaderLanguage, ShaderMaterial, Texture, Vector3, Vector4, type Scene, type TransformNode } from "@babylonjs/core";
 import { whenMeshesReady } from "foss-earth/runtime";
 import type { EngineExhaustState } from "./createEngineExhaust";
 import type { EngineSmokeProfile } from "./engineSmokeProfiles";
@@ -148,7 +148,7 @@ export function createEngineSmoke(scene: Scene, options: EngineSmokeOptions): En
     || ![profile.width, profile.height, profile.columns, profile.rows].every(value => Number.isInteger(value) && value > 0)) {
     throw new Error("Engine smoke needs finite declared geometry and sprite data");
   }
-  const mesh = MeshBuilder.CreatePlane(`engine-smoke-${profile.id}`, { size: 2 }, scene);
+  const mesh = CreatePlane(`engine-smoke-${profile.id}`, { size: 2 }, scene);
   mesh.setEnabled(false);
   mesh.isPickable = false;
   mesh.receiveShadows = false;
