@@ -1,4 +1,4 @@
-import { Constants, DepthRenderer, Matrix, Texture, type Scene, type Mesh, type AbstractMesh } from "@babylonjs/core";
+import { Constants, DepthRenderer, Matrix, Texture, TransformNode, type Scene, type Mesh, type AbstractMesh, type Node } from "@babylonjs/core";
 import "@babylonjs/core/Rendering/depthRendererSceneComponent";
 
 /**
@@ -30,11 +30,32 @@ export function hiddenDepthOccludersReady(): boolean {
   return true;
 }
 
+/**
+ * Brings a changed node's world matrix up to date, its ancestors first, each
+ * node once per pass. A transform edited twice in one render id can bypass
+ * Babylon's usual computeWorldMatrix fast path, so a changed node is
+ * invalidated as markAsDirty does it, without marking its descendants.
+ * Forcing instead would recompute the whole ancestor chain again for every
+ * mesh below it. Frozen and billboard nodes and other node kinds are forced as
+ * before: their matrices follow their own rules.
+ */
+function refreshChangedWorldMatrix(node: Node, refreshed: Set<Node>): void {
+  if (refreshed.has(node)) return;
+  refreshed.add(node);
+  if (!(node instanceof TransformNode) || node.isWorldMatrixFrozen || node.billboardMode !== TransformNode.BILLBOARDMODE_NONE) {
+    node.computeWorldMatrix(true);
+    return;
+  }
+  if (node.parent) refreshChangedWorldMatrix(node.parent, refreshed);
+  if (!node.isSynchronized()) node._currentRenderId = Number.MAX_VALUE;
+  node.computeWorldMatrix();
+}
+
 /** Perspective division maps a front-of-camera box inside its projected corners. */
-function projectedBounds(mesh: AbstractMesh, matrix: Matrix): readonly number[] | undefined {
-  // A transform edited twice in one render id can bypass Babylon's usual
-  // computeWorldMatrix fast path. Force only an unsynchronized hierarchy.
-  mesh.computeWorldMatrix(!mesh.isSynchronized());
+function projectedBounds(mesh: AbstractMesh, matrix: Matrix, refreshed: Set<Node>): readonly number[] | undefined {
+  const synchronized = mesh.isSynchronized();
+  if (synchronized || mesh.isWorldMatrixFrozen) mesh.computeWorldMatrix(!synchronized);
+  else refreshChangedWorldMatrix(mesh, refreshed);
   const m = matrix.m;
   let left = Infinity, bottom = Infinity, right = -Infinity, top = -Infinity, nearest = Infinity, farthest = -Infinity;
   for (const { x, y, z } of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
@@ -60,6 +81,7 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
   let candidates: AbstractMesh[] = [];
   texture.renderList = renderList;
   const projection = Matrix.Identity();
+  const refreshed = new Set<Node>();
   // This is privately scheduled. Never replace/disable another consumer's depth renderer.
   let active = false, disposed = false, ready = false, scale = 1;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -69,7 +91,8 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
     const engine = scene.getEngine(), previousPass = engine.currentRenderPassId;
     const camera = scene.activeCamera;
     if (camera) camera.getViewMatrix().multiplyToRef(camera.getProjectionMatrix(), projection);
-    const plumeBounds = camera ? projectedBounds(plume, projection) : undefined;
+    refreshed.clear();
+    const plumeBounds = camera ? projectedBounds(plume, projection, refreshed) : undefined;
     const size = texture.getSize(), marginX = 2 / size.width, marginY = 2 / size.height;
     // Babylon observes renderList.push(): the first push after clearing it
     // invalidates light defines on every scene mesh. Build off the observed
@@ -85,7 +108,7 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
         const instanced = Boolean(mesh.hasThinInstances || mesh.hasInstances);
         // Deformed/instanced geometry may extend beyond the base mesh bounds.
         const deformed = instanced || Boolean(mesh.skeleton || (mesh as Mesh).morphTargetManager);
-        const bounds = plumeBounds && !deformed ? projectedBounds(mesh, projection) : undefined;
+        const bounds = plumeBounds && !deformed ? projectedBounds(mesh, projection, refreshed) : undefined;
         // Retain every possible foreground occluder, even far from the engine in
         // world space. Disjoint screen bounds and boxes wholly behind the gas
         // cannot occlude any part of it.

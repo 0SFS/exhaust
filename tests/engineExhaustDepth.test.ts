@@ -1,4 +1,4 @@
-import { DepthRenderer, FreeCamera, MeshBuilder, MultiMaterial, NullEngine, PBRMaterial, PBRMaterialDefines, Scene, StandardMaterial, SubMesh, Vector3 } from "@babylonjs/core";
+import { DepthRenderer, FreeCamera, Matrix, MeshBuilder, MultiMaterial, NullEngine, PBRMaterial, PBRMaterialDefines, Scene, StandardMaterial, SubMesh, TransformNode, Vector3, type Mesh } from "@babylonjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEngineExhaustDepth, hiddenDepthOccludersReady, watchHiddenDepthOccluder } from "../src/engineExhaustDepth";
 
@@ -107,6 +107,33 @@ describe("engine exhaust opaque-depth readiness", () => {
     outside.setEnabled(false);
     t.scene.onBeforeRenderObservable.notifyObservers(t.scene);
     expect(t.depth.texture.renderList).not.toContain(outside);
+  });
+
+  it("brings a moved hierarchy up to date once per node, including a transform edited again in the same render id", () => {
+    const t = fixture();
+    const camera = new FreeCamera("camera", new Vector3(0, 0, -10), t.scene);
+    camera.setTarget(Vector3.Zero()); t.scene.activeCamera = camera;
+    const root = new TransformNode("aircraft", t.scene);
+    const parts: Mesh[] = [];
+    for (let i = 0; i < 6; i++) {
+      const part = MeshBuilder.CreateBox(`part-${i}`, { size: 0.2 }, t.scene);
+      part.material = t.material; part.parent = parts.at(-1) ?? root; part.position.set(0.1, 0.05, 0.02);
+      parts.push(part);
+    }
+    vi.spyOn(DepthRenderer.prototype, "isReady").mockReturnValue(true);
+    t.depth.setActive(true, 1);
+    // Read once in this render id, then moved again before the pass.
+    root.position.x = 0.5;
+    for (const part of parts) part.computeWorldMatrix();
+    root.position.x = 1;
+    const composed = vi.spyOn(Matrix, "ComposeToRef");
+    t.scene.onBeforeRenderObservable.notifyObservers(t.scene);
+    // The root and each part once, not the chain above every part again.
+    expect(composed).toHaveBeenCalledTimes(7);
+    const seen = parts.map(part => [...part.getWorldMatrix().m]);
+    for (const part of parts) part.computeWorldMatrix(true);
+    expect(parts.map(part => [...part.getWorldMatrix().m])).toEqual(seen);
+    expect(seen[5][12]).toBeCloseTo(1.6, 6);
   });
 
   it("checks the depth pass and restores the main pass during activation, polling and a frame", () => {
