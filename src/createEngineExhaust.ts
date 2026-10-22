@@ -757,7 +757,9 @@ export function createEngineExhaust(scene: Scene, options: EngineExhaustOptions)
       nearbyLight.intensity = peak * lightGain * gasGain;
       nearbyLight.range = lightRange;
       nearbyLight.position.z = length * 0.06 / metresPerUnit;
-      nearbyLight.setEnabled(peak > 0);
+      // Light.setEnabled resynchronizes every scene mesh even for the same
+      // value. Changing emission only needs uniform updates, not that scan.
+      if (nearbyLight.isEnabled() !== (peak > 0)) nearbyLight.setEnabled(peak > 0);
     } else if (nearbyLight) {
       nearbyLight.dispose();
       nearbyLight = null;

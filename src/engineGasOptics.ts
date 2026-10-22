@@ -231,16 +231,47 @@ export function interpolateGasBlackbody(data: EngineGasOpticalData, kelvin: numb
 
 /** Absolute RGB interpolation shared by independent solid regions and gas continuum. */
 export function interpolateAbsoluteEmission(table: EngineGasOpticalData["blackbody"], kelvin: number): readonly [number, number, number] | null {
+  if (!Number.isFinite(kelvin) || kelvin < table.temperatureKelvinRange[0]
+    || kelvin > table.temperatureKelvinRange[1] || table.samples.length < 2) return null;
+  // Preserve the authored endpoint values (including their identity).
+  if (kelvin === table.temperatureKelvinRange[0]) return table.samples[0];
+  if (kelvin === table.temperatureKelvinRange[1]) return table.samples[table.samples.length - 1];
+  const result: [number, number, number] = [0, 0, 0];
+  return interpolateAbsoluteEmissionInto(table, kelvin, result) ? result : null;
+}
+
+// Validated optical tables are readonly profile resources. Cache only their
+// logarithms, never temperatures or interpolated emission: each changing state
+// still evaluates the same log-linear interpolation at full Number precision.
+const emissionLogCache = new WeakMap<EngineGasOpticalData["blackbody"], Float64Array>();
+
+function interpolateAbsoluteEmissionInto(table: EngineGasOpticalData["blackbody"], kelvin: number,
+  result: number[]): boolean {
   const { temperatureKelvinRange: range, samples } = table;
-  if (!Number.isFinite(kelvin) || kelvin < range[0] || kelvin > range[1] || samples.length < 2) return null;
+  if (!Number.isFinite(kelvin) || kelvin < range[0] || kelvin > range[1] || samples.length < 2) {
+    result[0] = result[1] = result[2] = 0;
+    return false;
+  }
   const position = (kelvin - range[0]) / (range[1] - range[0]) * (samples.length - 1);
-  if (kelvin === range[0]) return samples[0];
-  if (kelvin === range[1]) return samples[samples.length - 1];
   const lower = Math.floor(position), upper = Math.min(lower + 1, samples.length - 1), f = position - lower;
-  return samples[lower].map((a, c) => {
+  if (kelvin === range[0] || kelvin === range[1]) {
+    const row = samples[kelvin === range[0] ? 0 : samples.length - 1];
+    result[0] = row[0]; result[1] = row[1]; result[2] = row[2];
+    return true;
+  }
+  let logs = emissionLogCache.get(table);
+  if (!logs) {
+    logs = new Float64Array(samples.length * 3);
+    for (let i = 0; i < samples.length; i++) for (let c = 0; c < 3; c++) logs[i * 3 + c] = Math.log(samples[i][c]);
+    emissionLogCache.set(table, logs);
+  }
+  for (let c = 0; c < 3; c++) {
+    const a = samples[lower][c];
     const b = samples[upper][c];
-    return a > 0 && b > 0 ? Math.exp(Math.log(a) + (Math.log(b) - Math.log(a)) * f) : a + (b - a) * f;
-  }) as [number, number, number];
+    const logA = logs[lower * 3 + c];
+    result[c] = a > 0 && b > 0 ? Math.exp(logA + (logs[upper * 3 + c] - logA) * f) : a + (b - a) * f;
+  }
+  return true;
 }
 
 /** Precomputed Planck mean; no spectral integration is performed at runtime. */
@@ -318,14 +349,24 @@ export function engineGasSupportLength(profile: { readonly gasEmission?: EngineG
 
 /** Offline bases are interpolated in physical axial distance / exit radius. */
 export function sampleGasSpatialBasis(data: EngineGasSpatialData, axialRadii: number, radialFraction: number): readonly number[] {
+  const result = [0, 0, 0, 0];
+  sampleGasSpatialBasisInto(data, axialRadii, radialFraction, result);
+  return result;
+}
+
+function sampleGasSpatialBasisInto(data: EngineGasSpatialData, axialRadii: number, radialFraction: number,
+  result: number[]): void {
   if (!Number.isFinite(axialRadii) || !Number.isFinite(radialFraction) || axialRadii < 0
-    || axialRadii > data.axialRadiusRange[1] || radialFraction < 0 || radialFraction > 1) return [0, 0, 0, 0];
+    || axialRadii > data.axialRadiusRange[1] || radialFraction < 0 || radialFraction > 1) {
+    result[0] = result[1] = result[2] = result[3] = 0;
+    return;
+  }
   const x = axialRadii / data.axialRadiusRange[1] * (data.width - 1), y = radialFraction * (data.height - 1);
   const x0 = Math.floor(x), x1 = Math.min(data.width - 1, x0 + 1), y0 = Math.floor(y), y1 = Math.min(data.height - 1, y0 + 1);
   const fx = x - x0, fy = y - y0;
-  return [0, 1, 2, 3].map(c => (1 - fy) * ((1 - fx) * data.basisSamples[y0 * data.width + x0][c]
+  for (let c = 0; c < 4; c++) result[c] = (1 - fy) * ((1 - fx) * data.basisSamples[y0 * data.width + x0][c]
     + fx * data.basisSamples[y0 * data.width + x1][c])
-    + fy * ((1 - fx) * data.basisSamples[y1 * data.width + x0][c] + fx * data.basisSamples[y1 * data.width + x1][c]));
+    + fy * ((1 - fx) * data.basisSamples[y1 * data.width + x0][c] + fx * data.basisSamples[y1 * data.width + x1][c]);
 }
 
 /** Integral of a piecewise-linear nodal hat times coordinate^power on [0,1]. */
@@ -424,14 +465,19 @@ function integrateGasFlowFieldVolumeWeights(width: number, height: number, domai
     0.362683783378362, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763];
   const weights = new Float64Array(width * height);
   const exterior = new Float64Array(width * height);
+  // Exterior sections have no centerbody. Their radial hats depend only on the
+  // grid, so compute each once instead of repeating the same cubic primitives
+  // for every axial quadrature point.
+  const radialWithoutHole = Float64Array.from({ length: height }, (_, y) => radialHatAbove(y, height, 0));
   for (let i = 1; i < points.length; i++) {
     const half = (points[i] - points[i - 1]) / 2, center = (points[i] + points[i - 1]) / 2;
     for (let q = 0; q < nodes.length; q++) {
       const s = center + half * nodes[q], section = sampleEngineGasFlowSection(domain, s);
       const x = (s - lo) / length * (width - 1), x0 = Math.min(width - 2, Math.floor(x)), f = x - x0;
       const scale = 2 * Math.PI * section.radiusMeters ** 2 * section.areaFactor * half * quadrature[q];
+      const innerFraction = section.innerRadiusMeters / section.radiusMeters;
       for (let y = 0; y < height; y++) {
-        const w = scale * radialHatAbove(y, height, section.innerRadiusMeters / section.radiusMeters);
+        const w = scale * (innerFraction === 0 ? radialWithoutHole[y] : radialHatAbove(y, height, innerFraction));
         weights[y * width + x0] += w * (1 - f);
         weights[y * width + x0 + 1] += w * f;
         if (s >= 0) {
@@ -493,31 +539,50 @@ function evaluateSpatialGasOptics(data: EngineGasOpticalData, input: EngineGasOp
   const reactionDomainResolved = domain.axialDistanceRangeMeters[0] + reactionLength + axialStep <= 0;
   const kernelIntegral = (u: number) => u / 2 - Math.sin(2 * Math.PI * u) / (4 * Math.PI);
   const halfReactionCell = reactionLength > 0 ? 0.5 * axialStep / reactionLength : 0;
+  const distances = new Float64Array(width), unmixedFractions = new Float64Array(width);
+  const chAxialWeights = new Float64Array(width), chAxialWidths = new Float64Array(width);
+  const [start, end] = domain.axialDistanceRangeMeters;
+  for (let x = 0; x < width; x++) {
+    const distance = start + x / (width - 1) * (end - start);
+    distances[x] = distance;
+    if (parcelActive) unmixedFractions[x] = Math.exp(-Math.max(0, distance) / parcelData!.varianceMixingLengthMeters);
+    const progress = reactionLength > 0 ? (distance - start) / reactionLength : -1;
+    const lo = Math.max(0, progress - halfReactionCell), hi = Math.min(1, progress + halfReactionCell);
+    if (parcelActive && reactionDomainResolved && progress >= 0 && progress <= 1 && hi > lo) {
+      chAxialWeights[x] = kernelIntegral(hi) - kernelIntegral(lo);
+      chAxialWidths[x] = hi - lo;
+    }
+  }
+  // These vectors never escape this evaluation. Returning fields keep their own
+  // storage, so a later update cannot mutate retained diagnostics or textures.
+  const basis = [0, 0, 0, 0], coldXyz = [0, 0, 0], hotXyz = [0, 0, 0];
+  const emissionTable = data.particleSpectrum?.xyz ?? spatial.blackbodyXyz;
   let emittingVolumeM3 = 0, particlePowerPerAbsorption = 0, chBasisVolume = 0, c2BasisVolume = 0;
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const index = y * width + x, weight = volumeWeightsM3[index];
-    const [start, end] = domain.axialDistanceRangeMeters;
-    const distance = start + x / (width - 1) * (end - start);
+    const distance = distances[x];
     // Upstream is a homogeneous continuation of the exit boundary hypothesis,
     // not a new augmentor chemistry or thermodynamic solution.
-    const basis = sampleGasSpatialBasis(spatial, Math.max(0, distance) / input.radiusMeters, y / (height - 1));
+    sampleGasSpatialBasisInto(spatial, Math.max(0, distance) / input.radiusMeters, y / (height - 1), basis);
     const kelvin = ambient + (sourceBoundaryTemperatureKelvin - ambient) * basis[0];
     particleTemperatureKelvin[index] = kelvin;
     // Mixed/static temperatures below the cold table remain physically cold;
     // their negligible visible tail is zero, never normalized or rejected hot.
     const cold = ambient + ((upstream ?? sourceBoundaryTemperatureKelvin) - ambient) * basis[0];
     const hot = ambient + ((parcel?.productTemperatureKelvin ?? sourceBoundaryTemperatureKelvin) - ambient) * basis[0];
-    const pdf = parcelActive ? engineReactionTemperaturePdf(kelvin, cold, hot,
-      Math.exp(-Math.max(0, distance) / parcelData!.varianceMixingLengthMeters)) : undefined;
+    const pdf = parcelActive ? engineReactionTemperaturePdf(kelvin, cold, hot, unmixedFractions[x]) : undefined;
     const hotFraction = pdf?.hotVolumeFraction ?? 0;
     const coldK = pdf?.coldKelvin ?? kelvin, hotK = pdf?.hotKelvin ?? kelvin;
-    const emissionTable = data.particleSpectrum?.xyz ?? spatial.blackbodyXyz;
-    const coldXyz = interpolateAbsoluteEmission(emissionTable, coldK) ?? [0, 0, 0];
-    const hotXyz = hotFraction > 0 ? interpolateAbsoluteEmission(emissionTable, hotK) ?? [0, 0, 0] : coldXyz;
-    const xyz = coldXyz.map((value, c) => value * (1 - hotFraction) + hotXyz[c] * hotFraction);
-    const rgb = signedLinearRgbFromXyz(xyz);
-    particlePhotopicYCdPerM3[index] = basis[1] * xyz[1];
-    for (let c = 0; c < 3; c++) particleSourceRgbCdPerM3[index * 3 + c] = basis[1] * rgb[c];
+    interpolateAbsoluteEmissionInto(emissionTable, coldK, coldXyz);
+    if (hotFraction > 0) interpolateAbsoluteEmissionInto(emissionTable, hotK, hotXyz);
+    else { hotXyz[0] = coldXyz[0]; hotXyz[1] = coldXyz[1]; hotXyz[2] = coldXyz[2]; }
+    const xyzX = coldXyz[0] * (1 - hotFraction) + hotXyz[0] * hotFraction;
+    const xyzY = coldXyz[1] * (1 - hotFraction) + hotXyz[1] * hotFraction;
+    const xyzZ = coldXyz[2] * (1 - hotFraction) + hotXyz[2] * hotFraction;
+    particlePhotopicYCdPerM3[index] = basis[1] * xyzY;
+    particleSourceRgbCdPerM3[index * 3] = basis[1] * (3.2404542 * xyzX - 1.5371385 * xyzY - 0.4985314 * xyzZ);
+    particleSourceRgbCdPerM3[index * 3 + 1] = basis[1] * (-0.969266 * xyzX + 1.8760108 * xyzY + 0.041556 * xyzZ);
+    particleSourceRgbCdPerM3[index * 3 + 2] = basis[1] * (0.0556434 * xyzX - 0.2040259 * xyzY + 1.0572252 * xyzZ);
     // Extinction remains the reference-wavelength scalar approximation. The
     // spectral emissivity is integrated offline, independently of display RGB.
     rgba[index * 4 + 3] = basis[1];
@@ -527,10 +592,7 @@ function evaluateSpatialGasOptics(data: EngineGasOpticalData, input: EngineGasOp
     // CH(A) is produced in the augmentor, not carried metres downstream as an
     // excited molecule. The parcel yield fixes integrated watts; this declared
     // unresolved reaction-zone geometry distributes them inside the hardware.
-    const progress = reactionLength > 0 ? (distance - start) / reactionLength : -1;
-    const lo = Math.max(0, progress - halfReactionCell), hi = Math.min(1, progress + halfReactionCell);
-    const chWeight = parcelActive && reactionDomainResolved && progress >= 0 && progress <= 1 && hi > lo
-      ? basis[1] * (kernelIntegral(hi) - kernelIntegral(lo)) / (hi - lo) : 0;
+    const chWeight = chAxialWidths[x] > 0 ? basis[1] * chAxialWeights[x] / chAxialWidths[x] : 0;
     chPowerDensityWPerM3[index] = parcelData ? chWeight : basis[2];
     c2PowerDensityWPerM3[index] = basis[3];
     emittingVolumeM3 += weight;
@@ -559,6 +621,7 @@ function evaluateSpatialGasOptics(data: EngineGasOpticalData, input: EngineGasOp
   const chXyz = parcelData?.chXyzLumensPerWatt ?? spatial.excitedSpecies.ch.xyzLumensPerWatt;
   const chRgb = signedLinearRgbFromXyz(chXyz);
   const c2Rgb = signedLinearRgbFromXyz(spatial.excitedSpecies.c2.xyzLumensPerWatt);
+  const mixed = [0, 0, 0];
   let maxSourceCdPerM3 = 0, maxAbsorptionPerMeter = 0;
   for (let index = 0; index < count; index++) {
     particlePowerDensityWPerM3[index] *= absorptionPerMeter;
@@ -566,7 +629,6 @@ function evaluateSpatialGasOptics(data: EngineGasOpticalData, input: EngineGasOp
     c2PowerDensityWPerM3[index] *= c2BasisVolume > 0 ? c2PowerW / c2BasisVolume : 0;
     rgba[index * 4 + 3] *= absorptionPerMeter;
     maxAbsorptionPerMeter = Math.max(maxAbsorptionPerMeter, rgba[index * 4 + 3]);
-    const mixed = [0, 0, 0];
     for (let c = 0; c < 3; c++) {
       const offset = index * 3 + c;
       particleSourceRgbCdPerM3[offset] *= absorptionPerMeter;
@@ -577,9 +639,10 @@ function evaluateSpatialGasOptics(data: EngineGasOpticalData, input: EngineGasOp
     const photopicY = particlePhotopicYCdPerM3[index] * absorptionPerMeter
       + (chPowerDensityWPerM3[index] * chXyz[1]
         + c2PowerDensityWPerM3[index] * spatial.excitedSpecies.c2.xyzLumensPerWatt[1]) / (4 * Math.PI);
-    const source = gamutMapEngineEmission(mixed, photopicY);
+    for (let c = 0; c < 3; c++) mixed[c] = Math.max(0, mixed[c]);
+    const y = 0.2126729 * mixed[0] + 0.7151522 * mixed[1] + 0.072175 * mixed[2];
     for (let c = 0; c < 3; c++) {
-      rgba[index * 4 + c] = source[c];
+      rgba[index * 4 + c] = y > 0 ? mixed[c] * photopicY / y : 0;
       maxSourceCdPerM3 = Math.max(maxSourceCdPerM3, rgba[index * 4 + c]);
       isotropicIntensityRgbCd[c] += rgba[index * 4 + c] * volumeWeightsM3[index];
       exteriorIsotropicIntensityRgbCd[c] += rgba[index * 4 + c] * exteriorVolumeWeightsM3[index];

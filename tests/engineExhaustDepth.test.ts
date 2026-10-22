@@ -1,4 +1,4 @@
-import { DepthRenderer, FreeCamera, MeshBuilder, MultiMaterial, NullEngine, Scene, StandardMaterial, SubMesh, Vector3 } from "@babylonjs/core";
+import { DepthRenderer, FreeCamera, MeshBuilder, MultiMaterial, NullEngine, PBRMaterial, PBRMaterialDefines, Scene, StandardMaterial, SubMesh, Vector3 } from "@babylonjs/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createEngineExhaustDepth, hiddenDepthOccludersReady, watchHiddenDepthOccluder } from "../src/engineExhaustDepth";
 
@@ -30,6 +30,58 @@ function fixture() {
 }
 
 describe("engine exhaust opaque-depth readiness", () => {
+  it("keeps settled PBR lighting clean and publishes membership changes once without stale disposed meshes", () => {
+    const t = fixture();
+    const metal = new PBRMaterial("pbr-metal", t.scene);
+    t.hardware.material = metal;
+    const other = MeshBuilder.CreateBox("new-opaque", {}, t.scene);
+    other.material = metal;
+    other.setEnabled(false);
+    vi.spyOn(DepthRenderer.prototype, "isReady").mockReturnValue(true);
+    t.depth.setActive(true, 1);
+    const settled = t.depth.texture.renderList;
+    // Seed the real main-pass defines without compiling a GPU shader. Babylon's
+    // observed array callback dirties these when a list is emptied then pushed.
+    const defines = new PBRMaterialDefines();
+    t.hardware.subMeshes![0].materialDefines = defines;
+    defines.markAsProcessed();
+    const publish = vi.spyOn(t.depth.texture, "renderList", "set");
+    const frame = () => { t.scene.onBeforeRenderObservable.notifyObservers(t.scene); };
+    for (let i = 0; i < 3; i++) frame();
+    expect(t.depth.texture.renderList).toBe(settled);
+    expect(publish).not.toHaveBeenCalled();
+    expect(defines._areLightsDirty).toBe(false);
+
+    other.setEnabled(true);
+    frame();
+    expect(t.depth.texture.renderList?.map(mesh => mesh.name)).toEqual([t.hardware.name, other.name]);
+    expect(publish).toHaveBeenCalledOnce();
+    expect(defines._areLightsDirty).toBe(false);
+    frame();
+    expect(publish).toHaveBeenCalledOnce();
+
+    const survivingDefines = new PBRMaterialDefines();
+    other.subMeshes![0].materialDefines = survivingDefines;
+    survivingDefines.markAsProcessed();
+    t.hardware.dispose();
+    frame();
+    expect(t.depth.texture.renderList?.map(mesh => mesh.name)).toEqual([other.name]);
+    expect(publish).toHaveBeenCalledTimes(2);
+    other.isVisible = false;
+    frame();
+    expect(t.depth.texture.renderList).toHaveLength(0);
+    expect(publish).toHaveBeenCalledTimes(3);
+    frame();
+    expect(publish).toHaveBeenCalledTimes(3);
+    other.isVisible = true;
+    frame();
+    expect(t.depth.texture.renderList?.map(mesh => mesh.name)).toEqual([other.name]);
+    expect(publish).toHaveBeenCalledTimes(4);
+    expect(survivingDefines._areLightsDirty).toBe(false);
+    expect(t.depth.ready).toBe(true);
+    expect(t.engine.currentRenderPassId).toBe(t.mainPass);
+  });
+
   it("restricts depth draws and compilation to possible screen-space occluders while retaining foreground and camera-crossing geometry", () => {
     const t = fixture();
     const camera = new FreeCamera("camera", new Vector3(0, 0, -10), t.scene);

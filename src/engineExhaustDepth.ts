@@ -56,7 +56,8 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
   const renderer = new DepthRenderer(scene, Constants.TEXTURETYPE_FLOAT, null, false,
     Texture.NEAREST_SAMPLINGMODE, true, "engine-exhaust-opaque-depth");
   const texture = renderer.getDepthMap();
-  const renderList: AbstractMesh[] = [];
+  let renderList: AbstractMesh[] = [];
+  let candidates: AbstractMesh[] = [];
   texture.renderList = renderList;
   const projection = Matrix.Identity();
   // This is privately scheduled. Never replace/disable another consumer's depth renderer.
@@ -70,7 +71,10 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
     if (camera) camera.getViewMatrix().multiplyToRef(camera.getProjectionMatrix(), projection);
     const plumeBounds = camera ? projectedBounds(plume, projection) : undefined;
     const size = texture.getSize(), marginX = 2 / size.width, marginY = 2 / size.height;
-    renderList.length = 0;
+    // Babylon observes renderList.push(): the first push after clearing it
+    // invalidates light defines on every scene mesh. Build off the observed
+    // array and publish once only when the actual candidate set changes.
+    candidates.length = 0;
     const unresolved: AbstractMesh[] = [];
     try {
       // DepthRenderer selects the draw wrapper using the current render-pass ID.
@@ -97,8 +101,15 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
           opaque = true;
           if (!renderer.isReady(sub, instanced)) unready = true;
         }
-        if (opaque) renderList.push(mesh);
+        if (opaque) candidates.push(mesh);
         if (unready) unresolved.push(mesh);
+      }
+      if (candidates.length !== renderList.length || candidates.some((mesh, index) => mesh !== renderList[index])) {
+        const previous = renderList;
+        renderList = candidates;
+        texture.renderList = renderList;
+        // Replacing the list detaches Babylon's array observer from this one.
+        candidates = previous;
       }
       return unresolved;
     } finally { engine.currentRenderPassId = previousPass; }
