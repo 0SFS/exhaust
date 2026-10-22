@@ -465,10 +465,12 @@ function integrateGasFlowFieldVolumeWeights(width: number, height: number, domai
     0.362683783378362, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763];
   const weights = new Float64Array(width * height);
   const exterior = new Float64Array(width * height);
-  // Exterior sections have no centerbody. Their radial hats depend only on the
-  // grid, so compute each once instead of repeating the same cubic primitives
-  // for every axial quadrature point.
+  // Radial hats clear of the centerbody depend only on the grid: those of every
+  // exterior section, and inside the engine those wholly above the centerbody.
+  // Compute each once instead of repeating the same cubic primitives for every
+  // axial quadrature point.
   const radialWithoutHole = Float64Array.from({ length: height }, (_, y) => radialHatAbove(y, height, 0));
+  const h = 1 / (height - 1);
   for (let i = 1; i < points.length; i++) {
     const half = (points[i] - points[i - 1]) / 2, center = (points[i] + points[i - 1]) / 2;
     for (let q = 0; q < nodes.length; q++) {
@@ -477,7 +479,10 @@ function integrateGasFlowFieldVolumeWeights(width: number, height: number, domai
       const scale = 2 * Math.PI * section.radiusMeters ** 2 * section.areaFactor * half * quadrature[q];
       const innerFraction = section.innerRadiusMeters / section.radiusMeters;
       for (let y = 0; y < height; y++) {
-        const w = scale * (innerFraction === 0 ? radialWithoutHole[y] : radialHatAbove(y, height, innerFraction));
+        // A hat whose lower edge is at or above the centerbody takes the same
+        // bounds and arithmetic as without one, so the same value.
+        const aboveHole = innerFraction === 0 || y > 0 && innerFraction <= y * h - h;
+        const w = scale * (aboveHole ? radialWithoutHole[y] : radialHatAbove(y, height, innerFraction));
         weights[y * width + x0] += w * (1 - f);
         weights[y * width + x0 + 1] += w * f;
         if (s >= 0) {
