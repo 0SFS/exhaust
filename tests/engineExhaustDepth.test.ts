@@ -136,6 +136,24 @@ describe("engine exhaust opaque-depth readiness", () => {
     expect(seen[5][12]).toBeCloseTo(1.6, 6);
   });
 
+  it("neither draws nor waits on aircraft dressing flagged out of shadow casting", () => {
+    const t = fixture();
+    const store = MeshBuilder.CreateBox("hung-store", {}, t.scene);
+    store.material = t.material;
+    store.metadata = { aircraftVisualOnly: true, castsShadows: false };
+    const tank = MeshBuilder.CreateBox("external-tank", {}, t.scene);
+    tank.material = t.material;
+    tank.metadata = { aircraftVisualOnly: true };
+    // A store that never compiled would hold the pass unready if it were checked.
+    const checked = vi.spyOn(DepthRenderer.prototype, "isReady").mockImplementation(sub => sub.getMesh() !== store);
+    t.depth.setActive(true, 1);
+    t.scene.onBeforeRenderObservable.notifyObservers(t.scene);
+    expect(t.depth.texture.renderList?.map(mesh => mesh.name)).toEqual([t.hardware.name, tank.name]);
+    expect(checked.mock.calls.map(([sub]) => sub.getMesh())).not.toContain(store);
+    expect(t.depth.ready).toBe(true);
+    expect(t.pollSchedules()).toHaveLength(0);
+  });
+
   it("checks the depth pass and restores the main pass during activation, polling and a frame", () => {
     const t = fixture();
     const checkedPasses: number[] = [];

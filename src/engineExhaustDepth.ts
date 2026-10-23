@@ -86,7 +86,10 @@ export function createEngineExhaustDepth(scene: Scene, plume: Mesh, requestRende
   let active = false, disposed = false, ready = false, scale = 1;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let pending: AbstractMesh[] = [];
-  const eligible = (mesh: AbstractMesh) => mesh !== plume && mesh.isEnabled() && mesh.isVisible && !mesh.infiniteDistance;
+  // Aircraft dressing flagged out of shadow casting (exhaust, smoke, hung
+  // stores) stays out of this pass too, so it never waits on or draws them.
+  const visualOnly = (mesh: AbstractMesh) => mesh.metadata?.aircraftVisualOnly === true && mesh.metadata.castsShadows === false;
+  const eligible = (mesh: AbstractMesh) => mesh !== plume && mesh.isEnabled() && mesh.isVisible && !mesh.infiniteDistance && !visualOnly(mesh);
   const pendingNow = () => {
     const engine = scene.getEngine(), previousPass = engine.currentRenderPassId;
     const camera = scene.activeCamera;
