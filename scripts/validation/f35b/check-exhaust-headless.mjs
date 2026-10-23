@@ -148,7 +148,7 @@ status.finish=()=>{overlay?.dispose();visual?.dispose();model?.dispose();tempera
  camera=new FreeCamera('camera',new Vector3(0,2.3,-18),scene);camera.minZ=.05;camera.setTarget(new Vector3(0,2.3,-3));
  new HemisphericLight('light',new Vector3(.3,1,-.5),scene);
  parent=new TransformNode('fixed-aircraft-reference',scene);
- runtime=await createJsbsimRuntime({aircraftId:'f-35b',bootstrap:{latDeg:0,lonDeg:0,altFt:10000},onLog:()=>{}});
+ runtime=await createJsbsimRuntime({aircraftId:'f-35b',physicsHz:120,bootstrap:{latDeg:0,lonDeg:0,altFt:10000},onLog:()=>{}});
  if(!temperatureDescriptors.gas||!temperatureDescriptors.metal)throw new Error('Separate F35 gas and metal observations are not declared');
  temperatureBatch=runtime.sdk.createPropertyBatch(temperaturePaths,{create:false});
  if(temperatureBatch.missing.length)throw new Error('Native temperature observer unavailable: '+temperatureBatch.missing.join(','));
