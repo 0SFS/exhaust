@@ -761,8 +761,10 @@ export function createEngineExhaust(scene: Scene, options: EngineExhaustOptions)
       // value. Changing emission only needs uniform updates, not that scan.
       if (nearbyLight.isEnabled() !== (peak > 0)) nearbyLight.setEnabled(peak > 0);
     } else if (nearbyLight) {
-      nearbyLight.dispose();
-      nearbyLight = null;
+      // Rewind, cutoff and an occluded engine can make the source disappear
+      // between submitted WebGPU frames. Keep its buffer alive until this
+      // exhaust is disposed; cached material bind groups may still refer to it.
+      nearbyLight.setEnabled(false);
     }
     const supportRadius = radius * (1 + (gas.field?.radiusExpansionRatio ?? 0));
     if (support) {
