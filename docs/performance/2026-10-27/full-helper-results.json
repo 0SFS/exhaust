@@ -1,0 +1,228 @@
+{
+  "aa-left-aa-right": {
+    "labels": [
+      "aa-left",
+      "aa-right"
+    ],
+    "meshes": 150,
+    "warmupFrames": 1000,
+    "framesPerRound": 6000,
+    "rounds": [
+      {
+        "aa-left": {
+          "ms": 265.0762500000001,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-right": {
+          "ms": 268.0720829999999,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-right": {
+          "ms": 266.055333,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-left": {
+          "ms": 269.58779200000004,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-left": {
+          "ms": 270.9789169999999,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-right": {
+          "ms": 262.78762499999993,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-right": {
+          "ms": 261.5144580000001,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-left": {
+          "ms": 267.8502920000001,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-left": {
+          "ms": 264.9042089999998,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-right": {
+          "ms": 261.02087500000016,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-right": {
+          "ms": 260.4369999999999,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-left": {
+          "ms": 267.41012500000033,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-left": {
+          "ms": 265.0782909999998,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-right": {
+          "ms": 260.47258300000067,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "aa-right": {
+          "ms": 263.0358750000005,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "aa-left": {
+          "ms": 265.35191699999996,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      }
+    ],
+    "medians": [
+      267.41012500000033,
+      262.78762499999993
+    ],
+    "node": "26.9.0",
+    "v8": "14.6.202.34-node.32"
+  },
+  "baseline-hoist-indexed": {
+    "labels": [
+      "baseline",
+      "hoist-indexed"
+    ],
+    "meshes": 150,
+    "warmupFrames": 1000,
+    "framesPerRound": 6000,
+    "rounds": [
+      {
+        "baseline": {
+          "ms": 259.718042,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "hoist-indexed": {
+          "ms": 256.8416249999999,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "hoist-indexed": {
+          "ms": 255.17125,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "baseline": {
+          "ms": 262.5807080000002,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "baseline": {
+          "ms": 263.11912499999994,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "hoist-indexed": {
+          "ms": 251.6790000000001,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "hoist-indexed": {
+          "ms": 251.01358300000015,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "baseline": {
+          "ms": 261.4359169999998,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "baseline": {
+          "ms": 257.57858399999986,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "hoist-indexed": {
+          "ms": 249.79487500000005,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "hoist-indexed": {
+          "ms": 251.15137499999992,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "baseline": {
+          "ms": 260.547333,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "baseline": {
+          "ms": 257.80854199999976,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "hoist-indexed": {
+          "ms": 250.22808299999997,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      },
+      {
+        "hoist-indexed": {
+          "ms": 253.34508300000016,
+          "checksum": 35762637,
+          "total": 645584
+        },
+        "baseline": {
+          "ms": 257.7922499999995,
+          "checksum": 35762637,
+          "total": 645584
+        }
+      }
+    ],
+    "medians": [
+      260.547333,
+      251.6790000000001
+    ],
+    "node": "26.9.0",
+    "v8": "14.6.202.34-node.32"
+  }
+}
