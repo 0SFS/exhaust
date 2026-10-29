@@ -11,7 +11,7 @@ import "@babylonjs/core/ShadersWGSL/ShadersInclude/imageProcessingFunctions";
 import { whenMeshesReady } from "foss-earth/runtime";
 import type { EngineExhaustOpticalProfile } from "./engineExhaustProfiles";
 import { DEFAULT_ENGINE_GAS_AXIAL_SAMPLES, DEFAULT_ENGINE_GAS_RADIAL_SAMPLES,
-  engineGasSupportLength, evaluateEngineGasOptics, validateEngineGasOpticalData } from "./engineGasOptics";
+  engineGasSupportLength, evaluateEngineGasOptics, validateEngineGasOpticalData, type EngineGasFlowDomain } from "./engineGasOptics";
 import type { EngineGasSupportSnapshot } from "./engineGasSupport";
 import { ENGINE_GAS_SUPPORT_GLSL, ENGINE_GAS_SUPPORT_WGSL, ENGINE_GAS_SUPPORT_LIMIT, ENGINE_GAS_HOLE_KNOT_LIMIT, engineGasSectionShaderData } from "./engineGasSupportShader";
 import { createEngineExhaustDepth } from "./engineExhaustDepth";
@@ -106,6 +106,14 @@ const MAX_SAMPLES = 128;
 const unit = (value: number): number => Math.min(1, Math.max(0, value));
 const fieldSamples = (value: number | undefined, fallback: number): number =>
   Number.isFinite(value) ? Math.max(8, Math.min(64, Math.round(value!))) : fallback;
+const flowDomainKeys = new WeakMap<EngineGasFlowDomain, string>();
+const cachedFlowDomainKey = (domain: EngineGasFlowDomain): string => {
+  const cached = flowDomainKeys.get(domain);
+  if (cached !== undefined) return cached;
+  const key = JSON.stringify(domain);
+  flowDomainKeys.set(domain, key);
+  return key;
+};
 
 export const ENGINE_EXHAUST_GLSL_VERTEX = /* glsl */ `
 precision highp float;
@@ -658,8 +666,9 @@ export function createEngineExhaust(scene: Scene, options: EngineExhaustOptions)
     const axialSamples = fieldSamples(settings.axialFieldSamples, DEFAULT_ENGINE_GAS_AXIAL_SAMPLES);
     const radialSamples = fieldSamples(settings.radialFieldSamples, DEFAULT_ENGINE_GAS_RADIAL_SAMPLES);
     const support = options.flowSupport?.snapshot();
-    // Posed support can change without changing the axisymmetric physical field.
-    const flowDomainKey = support ? JSON.stringify(support.flowDomain) : "";
+    // Posed support can change revision without changing the domain object.
+    // Identity is the exact key, not revision alone.
+    const flowDomainKey = support ? cachedFlowDomainKey(support.flowDomain) : "";
     const correctedBoundary = profile.gasEmission?.spatialField?.model === "axisymmetric-gas-bath-v2";
     const nextPhysicalKey = [flowDomainKey, state?.gasTemperatureKelvin, state?.upstreamGasTemperatureKelvin,
       state?.ambientPressurePascal, state?.ambientTemperatureKelvin,

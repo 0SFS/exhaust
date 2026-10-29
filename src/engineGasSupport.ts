@@ -170,6 +170,55 @@ export function bindEngineGasSupport(root: TransformNode, definition: EngineGasS
   let revision = 0, cached: EngineGasSupportSnapshot | undefined;
   let lastThroatRadius = Number.NaN, lastThroatZ = Number.NaN, lastExitRadius = Number.NaN, lastExitZ = Number.NaN;
   let lastLength = Number.NaN, lastSlope = Number.NaN;
+  // Pose that produced the last identical engine-relative matrix. Nozzle
+  // vectoring rewrites the components of one quaternion object, so the
+  // reference alone cannot accept a repeated aim.
+  const poseStamps: {
+    node: TransformNode; parent: TransformNode["parent"]; quaternion: Quaternion | null;
+    qx: number; qy: number; qz: number; qw: number;
+    px: number; py: number; pz: number; sx: number; sy: number; sz: number; rx: number; ry: number; rz: number;
+  }[] = [];
+  let poseStamped = false;
+  const capturePose = (node: TransformNode, index: number) => {
+    const quaternion = node.rotationQuaternion, position = node.position, scaling = node.scaling, rotation = node.rotation;
+    const stamp = poseStamps[index] ?? (poseStamps[index] = {
+      node, parent: node.parent, quaternion, qx: 0, qy: 0, qz: 0, qw: 1,
+      px: 0, py: 0, pz: 0, sx: 1, sy: 1, sz: 1, rx: 0, ry: 0, rz: 0,
+    });
+    stamp.node = node; stamp.parent = node.parent; stamp.quaternion = quaternion;
+    if (quaternion) { stamp.qx = quaternion.x; stamp.qy = quaternion.y; stamp.qz = quaternion.z; stamp.qw = quaternion.w; }
+    stamp.px = position.x; stamp.py = position.y; stamp.pz = position.z;
+    stamp.sx = scaling.x; stamp.sy = scaling.y; stamp.sz = scaling.z;
+    stamp.rx = rotation.x; stamp.ry = rotation.y; stamp.rz = rotation.z;
+  };
+  const rememberPose = () => {
+    let count = 0;
+    for (const frame of boundFrames) {
+      let current = frame.node;
+      while (current !== root) {
+        let known = false;
+        for (let i = 0; i < count; i++) if (poseStamps[i].node === current) { known = true; break; }
+        if (!known) capturePose(current, count++);
+        if (!current.parent) break;
+        current = current.parent as TransformNode;
+      }
+    }
+    poseStamps.length = count;
+    poseStamped = true;
+  };
+  const poseMatches = () => {
+    if (!poseStamped) return false;
+    for (let i = 0; i < poseStamps.length; i++) {
+      const stamp = poseStamps[i], node = stamp.node, quaternion = node.rotationQuaternion;
+      if (node.parent !== stamp.parent || quaternion !== stamp.quaternion) return false;
+      if (quaternion && (!Object.is(quaternion.x, stamp.qx) || !Object.is(quaternion.y, stamp.qy) || !Object.is(quaternion.z, stamp.qz) || !Object.is(quaternion.w, stamp.qw))) return false;
+      const position = node.position, scaling = node.scaling, rotation = node.rotation;
+      if (!Object.is(position.x, stamp.px) || !Object.is(position.y, stamp.py) || !Object.is(position.z, stamp.pz)) return false;
+      if (!Object.is(scaling.x, stamp.sx) || !Object.is(scaling.y, stamp.sy) || !Object.is(scaling.z, stamp.sz)) return false;
+      if (!Object.is(rotation.x, stamp.rx) || !Object.is(rotation.y, stamp.ry) || !Object.is(rotation.z, stamp.rz)) return false;
+    }
+    return true;
+  };
   return {
     root,
     update(aperture: EngineGasAperture, exteriorLengthMeters: number, spreadingSlope: number): EngineGasSupportSnapshot {
@@ -179,25 +228,33 @@ export function bindEngineGasSupport(root: TransformNode, definition: EngineGasS
       // relative-pose cache path; an unchanged support must not hide bad scale.
       const rootWorld = root.computeWorldMatrix(true).m, metresPerUnit = Math.hypot(rootWorld[0], rootWorld[1], rootWorld[2]);
       if (!Number.isFinite(metresPerUnit) || Math.abs(metresPerUnit - 1) > 1e-5) throw new Error("Authored F135 gas support requires metre-scale engine geometry");
-      let changed = !cached || aperture.throatRadius !== lastThroatRadius || aperture.throatZ !== lastThroatZ
-        || aperture.exitRadius !== lastExitRadius || aperture.exitZ !== lastExitZ
-        || exteriorLengthMeters !== lastLength || spreadingSlope !== lastSlope;
-      for (const frame of boundFrames) {
-        // Compare engine-relative matrices before allocating section geometry.
-        // Aircraft motion/rebasing cannot alter this support. Reuse the scratch
-        // matrices for the hierarchy walk, including live parent changes.
-        Matrix.IdentityToRef(frame.matrix);
-        let current = frame.node;
-        while (current !== root) {
-          const rotation = current.rotationQuaternion ?? Quaternion.FromEulerVectorToRef(current.rotation, eulerRotation);
-          Matrix.ComposeToRef(current.scaling, rotation, current.position, localMatrix);
-          frame.matrix.multiplyToRef(localMatrix, frame.matrix);
-          if (!current.parent) throw new Error("Gas support node is outside its engine root");
-          current = current.parent as TransformNode;
+      const apertureSame = cached !== undefined
+        && Object.is(aperture.throatRadius, lastThroatRadius) && Object.is(aperture.throatZ, lastThroatZ)
+        && Object.is(aperture.exitRadius, lastExitRadius) && Object.is(aperture.exitZ, lastExitZ);
+      const exteriorSame = exteriorLengthMeters === lastLength && spreadingSlope === lastSlope;
+      // Skip the parent product only for an accepted aperture whose bound
+      // chain still matches the stamp. A creeping nozzle still walks.
+      const skipWalk = apertureSame && poseMatches();
+      if (skipWalk && exteriorSame) return cached!;
+      let changed = !apertureSame || !exteriorSame;
+      if (!skipWalk) {
+        for (const frame of boundFrames) {
+          // Compare engine-relative matrices before allocating section geometry.
+          // Aircraft motion/rebasing cannot alter this support. Reuse the scratch
+          // matrices for the hierarchy walk, including live parent changes.
+          Matrix.IdentityToRef(frame.matrix);
+          let current = frame.node;
+          while (current !== root) {
+            const rotation = current.rotationQuaternion ?? Quaternion.FromEulerVectorToRef(current.rotation, eulerRotation);
+            Matrix.ComposeToRef(current.scaling, rotation, current.position, localMatrix);
+            frame.matrix.multiplyToRef(localMatrix, frame.matrix);
+            if (!current.parent) throw new Error("Gas support node is outside its engine root");
+            current = current.parent as TransformNode;
+          }
+          if (!frame.matrix.equals(frame.accepted)) changed = true;
         }
-        if (!frame.matrix.equals(frame.accepted)) changed = true;
       }
-      if (!changed) return cached!;
+      if (!changed) { rememberPose(); return cached!; }
       const transformRing = (matrix: Matrix, value: EngineGasRingDefinition) => {
         return { center: vector(Vector3.TransformCoordinates(Vector3.FromArray(value.center), matrix)),
           u: normalize(vector(Vector3.TransformNormal(Vector3.FromArray(value.radialU), matrix))),
@@ -243,6 +300,7 @@ export function bindEngineGasSupport(root: TransformNode, definition: EngineGasS
       lastThroatRadius = aperture.throatRadius; lastThroatZ = aperture.throatZ;
       lastExitRadius = aperture.exitRadius; lastExitZ = aperture.exitZ;
       lastLength = exteriorLengthMeters; lastSlope = spreadingSlope;
+      rememberPose();
       cached = { revision: ++revision, sections, flowDomain: { axialDistanceRangeMeters: [sections[0].startDistance, sections.at(-1)!.endDistance], sections: knots },
         bounds: { min: min as unknown as GasVector, max: max as unknown as GasVector }, nozzleSegmentCount: definition.nozzleSegmentCount, nozzleSealHalfWidthMeters: definition.nozzleSealHalfWidthMeters };
       return cached;
