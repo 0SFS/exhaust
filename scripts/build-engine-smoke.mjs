@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { newOutputDirectory } from "../../fly/scripts/outputDirectory.mjs";
-import { encodeRgbaPng } from "../../F135/scripts/exhaustOptics/bake.mjs";
+import { encodeRgbaPng, keepInstalledPng } from "../../F135/scripts/exhaustOptics/bake.mjs";
 
 const root = fileURLToPath(new URL("../../fly/", import.meta.url));
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -30,7 +30,7 @@ export function generateEngineSmokeSprite() {
       rgba.set([255, 255, 255, Math.round(alpha * 255)], index);
     }
   }
-  const png = encodeRgbaPng(width, height, rgba);
+  const png = keepInstalledPng(encodeRgbaPng(width, height, rgba), path.join(root, "../exhaust/src/generated/engine-smoke-flipbook.png"));
   const manifest = {
     schemaVersion: 1, id: "faint-aircraft-aerosol-v1", assetLicense: "AGPL-3.0-only",
     method: "Original deterministic procedural alpha flipbook; 16 frames, one sample per covered fragment.",
